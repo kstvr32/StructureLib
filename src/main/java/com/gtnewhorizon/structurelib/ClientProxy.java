@@ -11,11 +11,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.gtnewhorizon.structurelib.util.MiscUtils;
 import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
+import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiNewChat;
 import net.minecraft.client.particle.EntityFX;
+import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.culling.Frustrum;
 import net.minecraft.client.renderer.texture.TextureMap;
@@ -33,6 +36,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.ConfigElement;
+import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import net.minecraftforge.event.world.WorldEvent;
 
@@ -377,6 +381,54 @@ public class ClientProxy extends CommonProxy {
             return frustrum.isBoxInFrustum(x + 0.25, y + 0.25, z + 0.25, x + 0.75, y + 0.75, z + 0.75);
         }
 
+        public void drawText(Tessellator tes, double eyeX, double eyeY, double eyeZ, int eyeXint, int eyeYint,
+                             int eyeZint){
+            FontRenderer fontRenderer = Minecraft.getMinecraft().fontRenderer;
+
+            double X = (x - eyeXint) + 0.5;
+            double Y = (y - eyeYint) + 0.5;
+            double Z = (z - eyeZint) + 0.5;
+
+            float blockSize = 0.5F;
+
+            float displayWidth = blockSize * 0.9F;
+            float displayHeight = blockSize * 0.9F;
+            int stringWidth = fontRenderer.getStringWidth("2");
+            int stringHeight = fontRenderer.FONT_HEIGHT;
+
+            float scaleY = (displayWidth / stringWidth);
+            float scaleX = (displayHeight / stringHeight);
+            float scaleFactor = Math.min(scaleX, scaleY);
+
+            int color = MiscUtils.rgbaToInt(10,100,200, 196);
+
+            GL11.glPushMatrix();
+
+            // Sets to center of block
+            GL11.glTranslated(X, Y, Z);
+
+            for(int i = 0; i < 4; i++){
+                GL11.glPushMatrix();
+
+                // Rotate to each side
+                GL11.glRotatef(i * 90, 0, 1 , 0);
+
+                // Translate to just outside the box
+                GL11.glTranslated(0, 0, blockSize / 2 + 0.001);
+
+                // Scale to make string fit
+                GL11.glScalef(scaleFactor, -scaleFactor, scaleFactor);
+
+                // Move to starting location
+                GL11.glTranslatef(-stringWidth / 2F + 0.5F, -stringHeight / 2F + 1, 0);
+                fontRenderer.drawString("2", 0,0, color, false);
+
+                GL11.glPopMatrix();
+            }
+
+            GL11.glPopMatrix();
+        }
+
         public void draw(Tessellator tes, double eyeX, double eyeY, double eyeZ, int eyeXint, int eyeYint,
                 int eyeZint) {
             double size = 0.5;
@@ -388,7 +440,7 @@ public class ClientProxy extends CommonProxy {
                     (int) (tint[0] * .9F),
                     (int) (tint[1] * .95F),
                     (int) (tint[2] * 1F),
-                    ConfigurationHandler.INSTANCE.getHintTransparency());
+                    255 - ConfigurationHandler.INSTANCE.getHintTransparency());
 
             double X = (x - eyeXint) + 0.25;
             double Y = (y - eyeYint) + 0.25;
@@ -610,46 +662,45 @@ public class ClientProxy extends CommonProxy {
             GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT); // TODO figure out original states
             // we need the back facing rendered because the thing is transparent
             GL11.glDisable(GL11.GL_CULL_FACE);
-            GL11.glDisable(GL11.GL_ALPHA_TEST);
+            // GL11.glDisable(GL11.GL_ALPHA_TEST);
             GL11.glEnable(GL11.GL_BLEND); // enable blend so it is transparent
-            GL11.glBlendFunc(GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_SRC_ALPHA);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
             // depth test begin as enabled
-            boolean renderThrough = false;
             Minecraft.getMinecraft().renderEngine.bindTexture(TextureMap.locationBlocksTexture);
             GL11.glTranslated(-d0 + i0, -d1 + i1, -d2 + i2);
             Tessellator tes = Tessellator.instance;
-            tes.startDrawing(GL11.GL_TRIANGLES);
             for (int i = 0, allHintsForRenderSize = allHintsForRender.size(), cubeDrawn = 0; i
                     < allHintsForRenderSize; i++, cubeDrawn++) {
                 HintParticleInfo hint = allHintsForRender.get(i);
                 if (!hint.isInFrustrum(frustrum)) continue;
-                if (renderThrough != hint.renderThrough) {
-                    if (i > 0) {
-                        p.endStartSection("Draw");
-                        tes.draw();
-                        tes.startDrawing(GL11.GL_TRIANGLES);
-                        cubeDrawn = 0;
-                        p.endStartSection("Prepare");
-                    }
-                    if (hint.renderThrough) GL11.glDisable(GL11.GL_DEPTH_TEST);
-                    else GL11.glEnable(GL11.GL_DEPTH_TEST);
-                    renderThrough = hint.renderThrough;
-                }
-                // Minecraft Tessellator draw in batch of 4096. This plays nicely with quads, but for trigs
-                // it might occasionally end up with one half in first batch and the other half in later batch.
-                // so we manually flush the buffer here if that would happen.
-                // 6 faces per particle, 2 trig per face, 3 vertex per trig
-                if ((cubeDrawn + 1) >= 4096 / (6 * 2 * 3)) {
-                    tes.draw();
-                    tes.startDrawing(GL11.GL_TRIANGLES);
-                }
+                if (hint.renderThrough) GL11.glDisable(GL11.GL_DEPTH_TEST);
+                else GL11.glEnable(GL11.GL_DEPTH_TEST);
+
+                Minecraft.getMinecraft().renderEngine.bindTexture(TextureMap.locationBlocksTexture);
+                tes.startDrawing(GL11.GL_TRIANGLES);
                 hint.draw(tes, d0, d1, d2, i0, i1, i2);
+                tes.draw();
+
+                hint.drawText(tes, d0, d1, d2, i0, i1, i2);
             }
-            p.endStartSection("Draw");
-            tes.draw();
+
             p.endSection();
 
             GL11.glPopAttrib();
+
+//            GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
+//            GL11.glDisable(GL11.GL_CULL_FACE);
+//            GL11.glDisable(GL11.GL_ALPHA_TEST);
+//            GL11.glEnable(GL11.GL_BLEND); // enable blend so it is transparent
+//            GL11.glBlendFunc(GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_SRC_ALPHA);
+//            for (int i = 0, allHintsForRenderSize = allHintsForRender.size(), cubeDrawn = 0; i
+//                < allHintsForRenderSize; i++, cubeDrawn++) {
+//                HintParticleInfo hint = allHintsForRender.get(i);
+//                if (!hint.isInFrustrum(frustrum)) continue;
+//                hint.drawText(tes, d0, d1, d2, i0, i1, i2);
+//            }
+//            GL11.glPopAttrib();
+
             GL11.glPopMatrix();
             p.endSection();
         }
